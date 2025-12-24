@@ -1,279 +1,245 @@
-import pygame
+import streamlit as st
 import random
-import os
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
-# --- INITIALISATION DE PYGAME ---
-pygame.init()
-
-# --- CONSTANTES ---
-SCREEN_WIDTH = 1200
-SCREEN_HEIGHT = 800
-CARD_WIDTH = 70
-CARD_HEIGHT = 100
-FPS = 60
-
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GREEN = (50, 150, 50)
-LIGHT_BLUE = (173, 216, 230)
-
-# --- FENÊTRE ---
-SCREEN = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Pyramid Scramble")
-CLOCK = pygame.time.Clock()
-
-# --- CHEMINS DES ASSETS ---
-ASSETS_DIR = "assets"
-CARD_IMAGES_DIR = os.path.join(ASSETS_DIR, "cards")
-CARD_BACK_IMAGE_PATH = os.path.join(ASSETS_DIR, "card_back.png")
-BACKGROUND_IMAGE_PATH = os.path.join(ASSETS_DIR, "background.png")
-
-
-# --- CHARGEMENT DES IMAGES ---
-CARD_IMAGES = {}
-CARD_BACK_IMAGE = None
-BACKGROUND_IMAGE = None
-
-try:
-    # Charge le dos de carte
-    CARD_BACK_IMAGE = pygame.image.load(CARD_BACK_IMAGE_PATH).convert_alpha()
-    CARD_BACK_IMAGE = pygame.transform.scale(CARD_BACK_IMAGE, (CARD_WIDTH, CARD_HEIGHT))
-
-    # Charge le fond (si existe)
-    if os.path.exists(BACKGROUND_IMAGE_PATH):
-        BACKGROUND_IMAGE = pygame.image.load(BACKGROUND_IMAGE_PATH).convert()
-        BACKGROUND_IMAGE = pygame.transform.scale(BACKGROUND_IMAGE, (SCREEN_WIDTH, SCREEN_HEIGHT))
-
-    # Charge toutes les images de cartes
-    for filename in os.listdir(CARD_IMAGES_DIR):
-        if filename.endswith(".png"):
-            card_name = os.path.splitext(filename)[0] # Ex: AS_PIQUE
-            img = pygame.image.load(os.path.join(CARD_IMAGES_DIR, filename)).convert_alpha()
-            CARD_IMAGES[card_name] = pygame.transform.scale(img, (CARD_WIDTH, CARD_HEIGHT))
-except Exception as e:
-    print(f"Erreur de chargement d'image : {e}")
-    print("Assurez-vous que le dossier 'assets/cards' existe et contient les images.")
-    # On va gérer avec des couleurs si les images ne chargent pas
-    CARD_BACK_IMAGE = pygame.Surface((CARD_WIDTH, CARD_HEIGHT))
-    CARD_BACK_IMAGE.fill(BLACK) # Noir si pas d'image
-    BACKGROUND_IMAGE = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    BACKGROUND_IMAGE.fill(GREEN) # Vert si pas de fond
-
+# --- CONFIGURATION DE LA PAGE ---
+st.set_page_config(
+    page_title="Pyramid Scramble",
+    page_icon="🎴",
+    layout="wide"
+)
 
 # --- CLASSES DU JEU ---
 
+@dataclass
 class Card:
+    rank: str
+    suit: str
+    face_up: bool = True
+    
     RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
-    SUITS = ['PIQUE', 'COEUR', 'CARREAU', 'TREFLE'] # Pour correspondre aux noms de fichiers
-
-    def __init__(self, rank, suit):
-        self.rank = rank
-        self.suit = suit
-        self.face_up = True
-        self.image = self._get_image()
-        self.rect = self.image.get_rect()
-
-    def _get_image(self):
-        # Cherche l'image correspondante
-        img_name = f"{self.rank}_{self.suit}"
-        if img_name in CARD_IMAGES:
-            return CARD_IMAGES[img_name]
-        else:
-            # Fallback si l'image n'est pas trouvée
-            temp_surface = pygame.Surface((CARD_WIDTH, CARD_HEIGHT))
-            temp_surface.fill((200, 200, 200)) # Gris
-            font = pygame.font.Font(None, 24)
-            text = font.render(f"{self.rank}-{self.suit[0]}", True, BLACK)
-            text_rect = text.get_rect(center=(CARD_WIDTH // 2, CARD_HEIGHT // 2))
-            temp_surface.blit(text, text_rect)
-            return temp_surface
-
-    def draw(self, surface, x, y):
-        self.rect.topleft = (x, y)
-        if self.face_up:
-            surface.blit(self.image, self.rect)
-        else:
-            surface.blit(CARD_BACK_IMAGE, self.rect)
-
+    SUITS = {'PIQUE': '♠️', 'COEUR': '♥️', 'CARREAU': '♦️', 'TREFLE': '♣️'}
+    SUIT_COLORS = {'PIQUE': 'black', 'COEUR': 'red', 'CARREAU': 'red', 'TREFLE': 'black'}
+    
     def __repr__(self):
-        return f"{self.rank} de {self.suit}"
+        return f"{self.rank}{self.SUITS[self.suit]}"
+    
+    def get_display(self):
+        return f"{self.rank} {self.SUITS[self.suit]}"
+    
+    def get_color(self):
+        return self.SUIT_COLORS[self.suit]
 
 class Deck:
     def __init__(self):
         self.cards = []
-        for suit in Card.SUITS:
+        for suit in Card.SUITS.keys():
             for rank in Card.RANKS:
                 self.cards.append(Card(rank, suit))
         self.shuffle()
-
+    
     def shuffle(self):
         random.shuffle(self.cards)
-
-    def deal(self, num_cards):
+    
+    def deal(self, num_cards: int) -> List[Card]:
         dealt_cards = []
         for _ in range(num_cards):
             if self.cards:
                 dealt_cards.append(self.cards.pop())
         return dealt_cards
-    
-    def add_card(self, card):
-        self.cards.append(card)
 
 class Hand:
-    def __init__(self, player_name="Joueur"):
+    def __init__(self, player_name: str = "Joueur"):
         self.player_name = player_name
-        self.cards = []
-
-    def add_card(self, card):
+        self.cards: List[Card] = []
+    
+    def add_card(self, card: Card):
         self.cards.append(card)
-        self.sort_hand() # Garder la main triée peut être utile
-
-    def remove_card(self, card_to_remove):
-        self.cards = [c for c in self.cards if c != card_to_remove]
         self.sort_hand()
-
+    
+    def remove_card(self, card: Card):
+        self.cards = [c for c in self.cards if c != card]
+        self.sort_hand()
+    
     def sort_hand(self):
-        # Trie par couleur puis par rang (ex: Pique A, Pique 2, ..., Coeur A, ...)
         rank_values = {rank: i for i, rank in enumerate(Card.RANKS)}
-        suit_values = {suit: i for i, suit in enumerate(Card.SUITS)}
+        suit_values = {suit: i for i, suit in enumerate(Card.SUITS.keys())}
         self.cards.sort(key=lambda card: (suit_values[card.suit], rank_values[card.rank]))
 
-    def draw(self, surface, x, y):
-        # Affiche les cartes du joueur
-        for i, card in enumerate(self.cards):
-            card.draw(surface, x + i * (CARD_WIDTH + 10), y)
-
 class Pyramid:
-    def __init__(self, size=3):
-        self.cards = [None] * size # Une liste pour les 3 cartes de la pyramide
-        self.rects = [] # Pour stocker les rects pour les clics
-
-    def set_cards(self, new_cards):
+    def __init__(self, size: int = 3):
+        self.cards: List[Optional[Card]] = [None] * size
+    
+    def set_cards(self, new_cards: List[Card]):
         self.cards = new_cards
-
-    def draw(self, surface, x, y):
-        self.rects = []
-        for i, card in enumerate(self.cards):
-            card_x = x + i * (CARD_WIDTH + 20)
-            card.draw(surface, card_x, y)
-            self.rects.append(card.rect) # Sauvegarde la position pour les clics
-
-    def replace_card(self, index, new_card):
+    
+    def replace_card(self, index: int, new_card: Card) -> Optional[Card]:
         if 0 <= index < len(self.cards):
             old_card = self.cards[index]
             self.cards[index] = new_card
-            return old_card # Retourne l'ancienne carte pour la défausse
+            return old_card
         return None
 
-    def get_card_at_pos(self, pos):
-        for i, rect in enumerate(self.rects):
-            if rect.collidepoint(pos):
-                return self.cards[i], i
-        return None, -1
+# --- INITIALISATION DE L'ÉTAT DU JEU ---
 
+def init_game():
+    """Initialise un nouveau jeu"""
+    deck = Deck()
+    st.session_state.deck = deck
+    st.session_state.discard_pile = []
+    st.session_state.player_hand = Hand("Joueur 1")
+    st.session_state.pyramid = Pyramid(size=3)
+    st.session_state.selected_card_index = None
+    st.session_state.message = "Choisissez une carte de votre main, puis une carte de la pyramide."
+    st.session_state.game_over = False
+    
+    # Distribution initiale
+    st.session_state.player_hand.cards = deck.deal(5)
+    st.session_state.pyramid.set_cards(deck.deal(3))
 
-class Game:
-    def __init__(self):
-        self.deck = Deck()
-        self.discard_pile = []
-        self.player_hand = Hand("Joueur 1")
-        self.pyramid = Pyramid(size=3)
-        self.selected_card = None # Carte que le joueur a cliquée dans sa main
-        self.message = ""
+# Initialisation au premier lancement
+if 'deck' not in st.session_state:
+    init_game()
 
-        self.setup_game()
+# --- FONCTIONS DU JEU ---
 
-    def setup_game(self):
-        self.player_hand.cards = self.deck.deal(5)
-        self.pyramid.set_cards(self.deck.deal(3))
-        self.message = "Choisissez une carte de votre main, puis une carte de la pyramide."
+def is_valid_move(hand_card: Card, pyramid_card: Card) -> bool:
+    """Vérifie si un coup est valide (même couleur OU même rang)"""
+    return hand_card.suit == pyramid_card.suit or hand_card.rank == pyramid_card.rank
 
-    def is_valid_move(self, hand_card, pyramid_card):
-        # Règle: même couleur OU même rang
-        return hand_card.suit == pyramid_card.suit or hand_card.rank == pyramid_card.rank
-
-    def handle_click(self, pos):
-        # 1. Clic sur la main du joueur
-        for card_in_hand in self.player_hand.cards:
-            if card_in_hand.rect.collidepoint(pos):
-                self.selected_card = card_in_hand
-                self.message = f"Carte sélectionnée : {self.selected_card}. Maintenant, cliquez sur une carte de la pyramide."
-                return
-
-        # 2. Clic sur la pyramide (si une carte de main est sélectionnée)
-        if self.selected_card:
-            pyramid_card, pyramid_index = self.pyramid.get_card_at_pos(pos)
-            if pyramid_card:
-                if self.is_valid_move(self.selected_card, pyramid_card):
-                    # Effectue le coup
-                    old_pyramid_card = self.pyramid.replace_card(pyramid_index, self.selected_card)
-                    self.player_hand.remove_card(self.selected_card)
-                    self.discard_pile.append(old_pyramid_card)
-                    self.message = "Coup valide ! Passez au tour suivant."
-                    self.selected_card = None
-                    self.check_game_over()
-                else:
-                    self.message = "Coup invalide. La carte doit correspondre en couleur ou en rang."
-            else:
-                self.message = "Cliquez sur une carte de la pyramide pour jouer."
-            return
-
-        # 3. Clic sur la pioche (si aucune carte sélectionnée ou coup invalide)
-        # Pour l'instant, pas de pioche automatique, le joueur clique pour passer.
-        # Implémentation future: Bouton "Passer / Piocher"
-
-
-    def check_game_over(self):
-        if not self.player_hand.cards:
-            self.message = "Félicitations ! Vous avez vidé votre main ! Vous avez gagné !"
-            # Potentiellement un écran de victoire ou un bouton pour rejouer
-            
-    def draw(self, surface):
-        if BACKGROUND_IMAGE:
-            surface.blit(BACKGROUND_IMAGE, (0, 0))
-        else:
-            surface.fill(GREEN) # Fond vert uni
-
-        # Dessine la main du joueur
-        font = pygame.font.Font(None, 30)
-        text = font.render("Votre Main:", True, BLACK)
-        surface.blit(text, (50, SCREEN_HEIGHT - CARD_HEIGHT - 40))
-        self.player_hand.draw(surface, 50, SCREEN_HEIGHT - CARD_HEIGHT - 20)
-
-        # Dessine la pyramide
-        text = font.render("Pyramide:", True, BLACK)
-        surface.blit(text, (50, 50))
-        self.pyramid.draw(surface, 50, 80)
-
-        # Affiche les messages
-        message_font = pygame.font.Font(None, 36)
-        message_text = message_font.render(self.message, True, BLACK)
-        surface.blit(message_text, (SCREEN_WIDTH // 2 - message_text.get_width() // 2, SCREEN_HEIGHT // 2))
-
-        # Met en évidence la carte sélectionnée
-        if self.selected_card:
-            pygame.draw.rect(surface, LIGHT_BLUE, self.selected_card.rect, 3) # Bordure bleue
-
-# --- BOUCLE DE JEU ---
-def main():
-    game = Game()
-    running = True
-
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1: # Clic gauche
-                    game.handle_click(event.pos)
-
-        SCREEN.fill(GREEN) # Remplir l'écran avant de redessiner
-        game.draw(SCREEN)
+def play_card(hand_card_index: int, pyramid_index: int):
+    """Joue une carte de la main sur la pyramide"""
+    hand_card = st.session_state.player_hand.cards[hand_card_index]
+    pyramid_card = st.session_state.pyramid.cards[pyramid_index]
+    
+    if is_valid_move(hand_card, pyramid_card):
+        # Effectue le coup
+        old_pyramid_card = st.session_state.pyramid.replace_card(pyramid_index, hand_card)
+        st.session_state.player_hand.remove_card(hand_card)
+        st.session_state.discard_pile.append(old_pyramid_card)
+        st.session_state.message = "✅ Coup valide ! Continuez à jouer."
+        st.session_state.selected_card_index = None
         
-        pygame.display.flip() # Met à jour l'écran
-        CLOCK.tick(FPS)
+        # Vérifie la victoire
+        if not st.session_state.player_hand.cards:
+            st.session_state.message = "🎉 Félicitations ! Vous avez vidé votre main ! Vous avez gagné !"
+            st.session_state.game_over = True
+    else:
+        st.session_state.message = "❌ Coup invalide. La carte doit correspondre en couleur ou en rang."
+        st.session_state.selected_card_index = None
 
-    pygame.quit()
+# --- INTERFACE STREAMLIT ---
 
-if __name__ == "__main__":
-    main()
+st.title("🎴 Pyramid Scramble")
+st.markdown("---")
+
+# CSS personnalisé pour les cartes
+st.markdown("""
+<style>
+.card {
+    border: 2px solid #333;
+    border-radius: 8px;
+    padding: 15px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    background: white;
+    box-shadow: 2px 2px 8px rgba(0,0,0,0.2);
+    min-width: 80px;
+    min-height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.card-selected {
+    border: 4px solid #4CAF50;
+    box-shadow: 0 0 15px rgba(76, 175, 80, 0.5);
+}
+.card-red {
+    color: red;
+}
+.card-black {
+    color: black;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Messages et statut
+col_msg, col_btn = st.columns([3, 1])
+with col_msg:
+    if st.session_state.game_over:
+        st.success(st.session_state.message)
+    else:
+        st.info(st.session_state.message)
+
+with col_btn:
+    if st.button("🔄 Nouvelle Partie", use_container_width=True):
+        init_game()
+        st.rerun()
+
+st.markdown("---")
+
+# --- PYRAMIDE ---
+st.subheader("🔺 Pyramide")
+pyramid_cols = st.columns(3)
+
+for i, card in enumerate(st.session_state.pyramid.cards):
+    with pyramid_cols[i]:
+        if card:
+            color = "red" if card.get_color() == "red" else "black"
+            st.markdown(f"<div class='card card-{color}'>{card.get_display()}</div>", unsafe_allow_html=True)
+            
+            if st.session_state.selected_card_index is not None and not st.session_state.game_over:
+                if st.button(f"Jouer ici", key=f"pyramid_{i}", use_container_width=True):
+                    play_card(st.session_state.selected_card_index, i)
+                    st.rerun()
+
+st.markdown("---")
+
+# --- MAIN DU JOUEUR ---
+st.subheader("🃏 Votre Main")
+
+if st.session_state.player_hand.cards:
+    hand_cols = st.columns(len(st.session_state.player_hand.cards))
+    
+    for i, card in enumerate(st.session_state.player_hand.cards):
+        with hand_cols[i]:
+            color = "red" if card.get_color() == "red" else "black"
+            selected_class = "card-selected" if st.session_state.selected_card_index == i else ""
+            st.markdown(f"<div class='card card-{color} {selected_class}'>{card.get_display()}</div>", unsafe_allow_html=True)
+            
+            if not st.session_state.game_over:
+                if st.button(f"Sélectionner", key=f"hand_{i}", use_container_width=True):
+                    st.session_state.selected_card_index = i
+                    st.session_state.message = f"Carte sélectionnée : {card}. Cliquez sur une carte de la pyramide."
+                    st.rerun()
+else:
+    st.write("Votre main est vide !")
+
+# --- STATISTIQUES ---
+st.markdown("---")
+stat_cols = st.columns(3)
+with stat_cols[0]:
+    st.metric("Cartes en main", len(st.session_state.player_hand.cards))
+with stat_cols[1]:
+    st.metric("Cartes dans le deck", len(st.session_state.deck.cards))
+with stat_cols[2]:
+    st.metric("Cartes défaussées", len(st.session_state.discard_pile))
+
+# --- RÈGLES ---
+with st.expander("📖 Règles du jeu"):
+    st.markdown("""
+    **Objectif :** Vider votre main en jouant toutes vos cartes sur la pyramide.
+    
+    **Comment jouer :**
+    1. Sélectionnez une carte de votre main
+    2. Cliquez sur une carte de la pyramide pour l'y placer
+    3. Votre carte remplacera la carte de la pyramide si elle a la **même couleur** OU le **même rang**
+    4. La carte remplacée va dans la défausse
+    5. Continuez jusqu'à vider votre main !
+    
+    **Exemple :**
+    - Vous pouvez jouer un 7♠️ sur un 7♥️ (même rang)
+    - Vous pouvez jouer un K♠️ sur un A♠️ (même couleur)
+    """)
